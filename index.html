@@ -63,7 +63,6 @@
             const [billImage, setBillImage] = useState(null);
             const [isParsing, setIsParsing] = useState(false);
             const [parseError, setParseError] = useState('');
-            // **API Key 狀態**
             const [apiKey, setApiKey] = useState('');
 
              // 在組件加載時從 localStorage 讀取 API Key
@@ -125,7 +124,6 @@
 
             const parseBill = async () => {
                 if (!apiKey) {
-                    // **修正：使用正確的提示訊息**
                     alert('請先輸入你的 Google AI API Key！');
                     return;
                 }
@@ -163,7 +161,6 @@
                 };
 
                 try {
-                    // **使用輸入的 API Key**
                     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
                     
                     const response = await fetch(apiUrl, {
@@ -201,7 +198,7 @@
                 }
             };
 
-            // --- 計算邏輯 (與之前相同) ---
+            // --- 計算邏輯 ---
             const calculation = useMemo(() => {
                 const dinerSubtotals = new Map(diners.map(d => [d.id, 0]));
                 let totalFoodBill = 0;
@@ -231,7 +228,7 @@
                 return { results, totalFoodBill, serviceChargeAmount, grandTotal };
             }, [diners, items, serviceCharge, exchangeRate]);
 
-            // --- 複製摘要 (與之前相同) ---
+            // --- 複製摘要 ---
             const copySummary = () => {
                 const { results, grandTotal } = calculation;
                 let summaryText = "======== 分帳結果 ========\n";
@@ -273,9 +270,7 @@
                         <section className="mb-8 p-4 border-2 border-dashed border-blue-400 rounded-lg bg-blue-50">
                             <h2 className="text-xl font-bold text-gray-700 mb-4 border-l-4 border-blue-500 pl-3">方法一：上載單據自動分析 (AI)</h2>
                             
-                            {/* **API Key 輸入框** */}
                             <div className="mb-4">
-                                {/* **修正：使用正確的標籤文字** */}
                                 <label className="block text-sm font-bold text-gray-700 mb-2">1. 輸入你的 Google AI API Key</label>
                                 <div className="relative">
                                     <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
@@ -285,7 +280,6 @@
                                         type="password" 
                                         value={apiKey} 
                                         onChange={handleApiKeyChange}
-                                        // **修正：使用正確的提示文字**
                                         placeholder="在此貼上你的 API Key"
                                         className="block w-full rounded-md border-gray-300 pl-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2"
                                     />
@@ -304,7 +298,7 @@
                             {parseError && <p className="text-red-500 mt-2 text-sm">{parseError}</p>}
                         </section>
 
-                        {/* --- 手動輸入區塊 (與之前相同) --- */}
+                        {/* --- 手動輸入區塊 --- */}
                         <h2 className="text-xl font-bold text-gray-700 mb-4 border-l-4 border-gray-500 pl-3">方法二：手動輸入項目</h2>
                         
                         <section className="mb-8">
@@ -413,7 +407,8 @@
                         )}
                     </div>
                     <footer className="text-center text-gray-400 text-sm mt-6">
-                        <p>&copy; 2024 React 分帳計數機 (API Key 修正版)</p>
+                        {/* **新增版本號，方便確認** */}
+                        <p>&copy; 2024 React 分帳計數機 (v1.1 - API Fix)</p>
                     </footer>
                 </div>
             );
