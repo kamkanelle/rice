@@ -42,7 +42,7 @@
     <script type="text/babel">
         // ========= React 應用程式碼 ==========
 
-        const { useState, useMemo, useCallback } = React;
+        const { useState, useMemo, useCallback, useEffect } = React;
 
         // --- 圖標組件 ---
         const PlusCircleIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>;
@@ -63,8 +63,23 @@
             const [billImage, setBillImage] = useState(null);
             const [isParsing, setIsParsing] = useState(false);
             const [parseError, setParseError] = useState('');
-            // **新增 API Key 狀態**
+            // **API Key 狀態**
             const [apiKey, setApiKey] = useState('');
+
+             // 在組件加載時從 localStorage 讀取 API Key
+            useEffect(() => {
+                const savedApiKey = localStorage.getItem('googleApiKey');
+                if (savedApiKey) {
+                    setApiKey(savedApiKey);
+                }
+            }, []);
+
+            // 當 API Key 變更時，將其儲存到 localStorage
+            const handleApiKeyChange = (e) => {
+                const newKey = e.target.value;
+                setApiKey(newKey);
+                localStorage.setItem('googleApiKey', newKey);
+            };
 
             // --- 用餐者相關函式 ---
             const addDiner = () => setDiners([...diners, { id: Date.now(), name: '' }]);
@@ -110,7 +125,8 @@
 
             const parseBill = async () => {
                 if (!apiKey) {
-                    alert('AIzaSyC4o3C0zkuRZ7XlVcjNff2fXdO4ulZtZkw');
+                    // **修正：使用正確的提示訊息**
+                    alert('請先輸入你的 Google AI API Key！');
                     return;
                 }
                 if (!billImage) {
@@ -257,9 +273,10 @@
                         <section className="mb-8 p-4 border-2 border-dashed border-blue-400 rounded-lg bg-blue-50">
                             <h2 className="text-xl font-bold text-gray-700 mb-4 border-l-4 border-blue-500 pl-3">方法一：上載單據自動分析 (AI)</h2>
                             
-                            {/* **新增的 API Key 輸入框** */}
+                            {/* **API Key 輸入框** */}
                             <div className="mb-4">
-                                <label className="block text-sm font-bold text-gray-700 mb-2">AIzaSyC4o3C0zkuRZ7XlVcjNff2fXdO4ulZtZkw</label>
+                                {/* **修正：使用正確的標籤文字** */}
+                                <label className="block text-sm font-bold text-gray-700 mb-2">1. 輸入你的 Google AI API Key</label>
                                 <div className="relative">
                                     <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                                         <KeyIcon />
@@ -267,8 +284,9 @@
                                     <input 
                                         type="password" 
                                         value={apiKey} 
-                                        onChange={e => setApiKey(e.target.value)}
-                                        placeholder="AIzaSyC4o3C0zkuRZ7XlVcjNff2fXdO4ulZtZkw"
+                                        onChange={handleApiKeyChange}
+                                        // **修正：使用正確的提示文字**
+                                        placeholder="在此貼上你的 API Key"
                                         className="block w-full rounded-md border-gray-300 pl-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2"
                                     />
                                 </div>
@@ -408,10 +426,3 @@
     </script>
 </body>
 </html>
-```
-
-#### 第 3 步：重新使用
-
-更新完畢後，等一兩分鐘讓 GitHub Pages 更新你的網站。然後，你就可以在手機上重新整理頁面，你會看到新增的 API Key 輸入框。
-
-將你剛剛複製的 API Key 貼上，再上傳單據圖片，AI 分析功能就能正常運作了！這個 Key 會被儲存在你的瀏覽器中，所以你不需要每次都
