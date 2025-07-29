@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>食飯分帳計數機 (AI增強版)</title>
+    
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 引入 React -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- 引入 Babel 轉譯器 -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        /* 自定義字體和背景 */
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f0f2f5;
+        }
+        /* 載入中動畫 */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // ========= React 應用程式碼 ==========
+
+        const { useState, useMemo, useCallback } = React;
+
+        // --- 圖標組件 ---
+        const PlusCircleIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>;
+        const XCircleIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>;
+        const CopyIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>;
+        const UploadCloudIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M12 12v9"></path><path d="m16 16-4-4-4 4"></path></svg>;
+
+        // --- 主應用程式組件 ---
+        function App() {
+            // --- 狀態管理 (State) ---
+            const [diners, setDiners] = useState([{ id: 1, name: 'A' }, { id: 2, name: 'B' }]);
+            const [items, setItems] = useState([{ id: 1, name: '', price: '', consumers: [] }]);
+            const [serviceCharge, setServiceCharge] = useState(10);
+            const [showResult, setShowResult] = useState(false);
+            // 新功能狀態
+            const [targetCurrency, setTargetCurrency] = useState('USD');
+            const [exchangeRate, setExchangeRate] = useState('');
+            const [billImage, setBillImage] = useState(null);
+            const [isParsing, setIsParsing] = useState(false);
+            const [parseError, setParseError] = useState('');
+
+            // --- 用餐者相關函式 ---
+            const addDiner = () => setDiners([...diners, { id: Date.now(), name: '' }]);
+            const removeDiner = (id) => {
+                setDiners(diners.filter(d => d.id !== id));
+                setItems(items.map(item => ({ ...item, consumers: item.consumers.filter(cId => cId !== id) })));
+            };
+            const updateDinerName = (id, name) => setDiners(diners.map(d => d.id === id ? { ...d, name } : d));
+
+            // --- 項目相關函式 ---
+            const addItem = () => setItems([...items, { id: Date.now(), name: '', price: '', consumers: [] }]);
+            const removeItem = (id) => setItems(items.filter(i => i.id !== id));
+            const updateItem = (id, field, value) => setItems(items.map(i => i.id === id ? { ...i, [field]: value } : i));
+            const toggleConsumer = (itemId, dinerId) => {
+                setItems(items.map(item => {
+                    if (item.id === itemId) {
+                        const newConsumers = item.consumers.includes(dinerId) ? item.consumers.filter(id => id !== dinerId) : [...item.consumers, dinerId];
+                        return { ...item, consumers: newConsumers };
+                    }
+                    return item;
+                }));
+            };
+            // [新功能] 全選消費者
+            const selectAllConsumers = (itemId) => {
+                setItems(items.map(item => {
+                    if (item.id === itemId) {
+                        return { ...item, consumers: diners.map(d => d.id) };
+                    }
+                    return item;
+                }));
+            };
+
+            // --- AI 單據分析功能 ---
+            const handleImageUpload = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const base64String = reader.result.replace('data:', '').replace(/^.+,/, '');
+                    setBillImage(base64String);
+                };
+                reader.readAsDataURL(file);
+            };
+
+            const parseBill = async () => {
+                if (!billImage) {
+                    alert('請先選擇單據圖片！');
+                    return;
+                }
+                setIsParsing(true);
+                setParseError('');
+
+                const prompt = "Analyze this restaurant bill. Extract each food/drink item and its price. Return the result as a JSON array of objects, where each object has a 'name' (string) and 'price' (number). For example: [{\"name\": \"Coke\", \"price\": 20}, {\"name\": \"Pizza\", \"price\": 150}]. Do not include totals, service charges, or other non-item fees.";
+                
+                const payload = {
+                    contents: [{
+                        role: "user",
+                        parts: [
+                            { text: prompt },
+                            { inlineData: { mimeType: "image/jpeg", data: billImage } }
+                        ]
+                    }],
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "ARRAY",
+                            items: {
+                                type: "OBJECT",
+                                properties: {
+                                    name: { type: "STRING" },
+                                    price: { type: "NUMBER" }
+                                },
+                                required: ["name", "price"]
+                            }
+                        }
+                    }
+                };
+
+                try {
+                    const apiKey = ""; // API Key will be provided by the environment
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                    
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`API 請求失敗，狀態碼: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    
+                    if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts[0]) {
+                        const parsedItems = JSON.parse(result.candidates[0].content.parts[0].text);
+                        const newItems = parsedItems.map(pItem => ({
+                            id: Date.now() + Math.random(),
+                            name: pItem.name,
+                            price: pItem.price.toString(),
+                            consumers: []
+                        }));
+                        setItems(newItems);
+                    } else {
+                        throw new Error('AI 無法分析單據，請檢查圖片或手動輸入。');
+                    }
+                } catch (error) {
+                    console.error("AI 分析錯誤:", error);
+                    setParseError(error.message || '發生未知錯誤');
+                } finally {
+                    setIsParsing(false);
+                }
+            };
+
+            // --- 計算邏輯 ---
+            const calculation = useMemo(() => {
+                const dinerSubtotals = new Map(diners.map(d => [d.id, 0]));
+                let totalFoodBill = 0;
+
+                items.forEach(item => {
+                    const price = parseFloat(item.price) || 0;
+                    if (price > 0 && item.consumers.length > 0) {
+                        totalFoodBill += price;
+                        const share = price / item.consumers.length;
+                        item.consumers.forEach(dinerId => {
+                            dinerSubtotals.set(dinerId, (dinerSubtotals.get(dinerId) || 0) + share);
+                        });
+                    }
+                });
+
+                const serviceChargeAmount = totalFoodBill * ((parseFloat(serviceCharge) || 0) / 100);
+                const grandTotal = totalFoodBill + serviceChargeAmount;
+
+                const results = diners.map(diner => {
+                    const subtotal = dinerSubtotals.get(diner.id) || 0;
+                    const proportionalServiceCharge = totalFoodBill > 0 ? (subtotal / totalFoodBill) * serviceChargeAmount : 0;
+                    const finalTotal = subtotal + proportionalServiceCharge;
+                    const foreignAmount = exchangeRate ? finalTotal * parseFloat(exchangeRate) : 0;
+                    return { id: diner.id, name: diner.name, subtotal, proportionalServiceCharge, finalTotal, foreignAmount };
+                });
+
+                return { results, totalFoodBill, serviceChargeAmount, grandTotal };
+            }, [diners, items, serviceCharge, exchangeRate]);
+
+            // --- 複製摘要 ---
+            const copySummary = () => {
+                const { results, grandTotal } = calculation;
+                let summaryText = "======== 分帳結果 ========\n";
+                results.forEach(res => {
+                    summaryText += `${res.name}: $${res.finalTotal.toFixed(2)}`;
+                    if (exchangeRate && targetCurrency) {
+                         summaryText += ` (${targetCurrency} ${res.foreignAmount.toFixed(2)})`;
+                    }
+                    summaryText += "\n";
+                });
+                summaryText += "========================\n";
+                summaryText += `總金額: $${grandTotal.toFixed(2)}`;
+
+                const textArea = document.createElement("textarea");
+                textArea.value = summaryText;
+                textArea.style.position = "fixed";
+                textArea.style.left = "-9999px";
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    alert('摘要已複製！');
+                } catch (err) {
+                    alert('複製失敗，請手動複製。');
+                }
+                document.body.removeChild(textArea);
+            };
+
+            // --- 渲染 (Render) ---
+            return (
+                <div className="max-w-4xl mx-auto p-4 sm:p-8">
+                    <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-8">
+                        <header className="text-center mb-8">
+                            <h1 className="text-3xl sm:text-4xl font-bold text-gray-800">食飯分帳計數機</h1>
+                            <p className="text-gray-500 mt-2">AI 增強版・輕鬆計算・公平分帳</p>
+                        </header>
+
+                        {/* --- AI 單據分析區塊 --- */}
+                        <section className="mb-8 p-4 border-2 border-dashed border-blue-400 rounded-lg bg-blue-50">
+                            <h2 className="text-xl font-bold text-gray-700 mb-4 border-l-4 border-blue-500 pl-3">方法一：上載單據自動分析 (AI)</h2>
+                            <div className="flex flex-col sm:flex-row items-center gap-4">
+                                <input type="file" accept="image/*" onChange={handleImageUpload} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200"/>
+                                <button onClick={parseBill} disabled={isParsing || !billImage} className="flex items-center justify-center gap-2 w-full sm:w-auto bg-blue-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed">
+                                    {isParsing ? <div className="loader"></div> : <UploadCloudIcon />}
+                                    {isParsing ? '分析中...' : '開始分析'}
+                                </button>
+                            </div>
+                            {parseError && <p className="text-red-500 mt-2 text-sm">{parseError}</p>}
+                        </section>
+
+                        {/* --- 手動輸入區塊 --- */}
+                        <h2 className="text-xl font-bold text-gray-700 mb-4 border-l-4 border-gray-500 pl-3">方法二：手動輸入項目</h2>
+                        
+                        {/* -- 用餐者區塊 -- */}
+                        <section className="mb-8">
+                            <h3 className="text-lg font-semibold text-gray-700 mb-3">1. 用餐者</h3>
+                            <div id="diners-container" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                                {diners.map(diner => (
+                                    <div key={diner.id} className="relative">
+                                        <input type="text" value={diner.name} onChange={(e) => updateDinerName(diner.id, e.target.value)} placeholder="朋友名" className="w-full pl-3 pr-8 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"/>
+                                        <button onClick={() => removeDiner(diner.id)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500 transition"><XCircleIcon /></button>
+                                    </div>
+                                ))}
+                            </div>
+                            <button onClick={addDiner} className="mt-4 flex items-center gap-2 text-blue-600 font-semibold hover:text-blue-800 transition"><PlusCircleIcon />新增用餐者</button>
+                        </section>
+
+                        {/* -- 項目區塊 -- */}
+                        <section className="mb-8">
+                            <h3 className="text-lg font-semibold text-gray-700 mb-3">2. 項目清單</h3>
+                            <div id="items-container" className="space-y-4">
+                                {items.map((item, index) => (
+                                    <div key={item.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                                            <span className="font-bold text-gray-600 md:col-span-1 md:text-center">#{index + 1}</span>
+                                            <input type="text" value={item.name} onChange={(e) => updateItem(item.id, 'name', e.target.value)} placeholder="項目名稱" className="w-full p-2 border border-gray-300 rounded-lg md:col-span-4"/>
+                                            <div className="relative md:col-span-2"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span><input type="number" value={item.price} onChange={(e) => updateItem(item.id, 'price', e.target.value)} placeholder="價錢" className="w-full pl-7 p-2 border border-gray-300 rounded-lg"/></div>
+                                            <div className="flex items-center justify-end md:col-span-1"><button onClick={() => removeItem(item.id)} className="text-gray-400 hover:text-red-500 transition"><XCircleIcon /></button></div>
+                                        </div>
+                                        <div className="mt-3 pt-3 border-t border-gray-200">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <p className="text-sm font-semibold text-gray-600">由誰消費？</p>
+                                                <button onClick={() => selectAllConsumers(item.id)} className="text-xs bg-gray-600 text-white px-2 py-1 rounded-md hover:bg-gray-700">全選</button>
+                                            </div>
+                                            <div className="flex flex-wrap gap-3">
+                                                {diners.filter(d => d.name).map(diner => (
+                                                    <label key={diner.id} className={`flex items-center gap-2 px-3 py-1 rounded-full cursor-pointer transition ${item.consumers.includes(diner.id) ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
+                                                        <input type="checkbox" checked={item.consumers.includes(diner.id)} onChange={() => toggleConsumer(item.id, diner.id)} className="hidden"/>{diner.name}
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                             <button onClick={addItem} className="mt-4 flex items-center gap-2 text-green-600 font-semibold hover:text-green-800 transition"><PlusCircleIcon />新增項目</button>
+                        </section>
+
+                        {/* -- 附加費與外幣區塊 -- */}
+                        <section className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-700 mb-3">3. 附加費用</h3>
+                                <div className="flex items-center gap-4 max-w-xs">
+                                    <label htmlFor="service-charge" className="font-semibold text-gray-600">服務費/小費</label>
+                                    <div className="relative flex-grow"><input type="number" id="service-charge" value={serviceCharge} onChange={(e) => setServiceCharge(e.target.value)} className="w-full p-2 pr-8 border border-gray-300 rounded-lg"/><span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">%</span></div>
+                                </div>
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-700 mb-3">4. 外幣兌換 (選填)</h3>
+                                <div className="flex items-center gap-4">
+                                    <input type="text" value={targetCurrency} onChange={e => setTargetCurrency(e.target.value)} placeholder="貨幣 (e.g. USD)" className="w-24 p-2 border border-gray-300 rounded-lg"/>
+                                    <span className="font-bold">=</span>
+                                    <input type="number" value={exchangeRate} onChange={e => setExchangeRate(e.target.value)} placeholder="匯率" className="flex-grow p-2 border border-gray-300 rounded-lg"/>
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* -- 計算按鈕 -- */}
+                        <button onClick={() => setShowResult(true)} className="w-full bg-blue-600 text-white font-bold py-4 rounded-lg text-xl hover:bg-blue-700 transition-transform transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300 shadow-lg">計數！</button>
+                        
+                        {/* -- 結果區塊 -- */}
+                        {showResult && (
+                            <section id="results" className="mt-10 pt-6 border-t-2 border-dashed border-gray-300">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h2 className="text-2xl font-bold text-gray-800">分帳結果</h2>
+                                    <button onClick={copySummary} className="flex items-center gap-2 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 transition text-sm"><CopyIcon />複製摘要</button>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full min-w-full text-left">
+                                        <thead className="bg-gray-100">
+                                            <tr>
+                                                <th className="p-4 font-semibold text-gray-600">姓名</th>
+                                                <th className="p-4 font-semibold text-gray-600 text-right">食物小計</th>
+                                                <th className="p-4 font-semibold text-gray-600 text-right">服務費</th>
+                                                <th className="p-4 font-semibold text-gray-800 text-right text-lg">總額 (HKD)</th>
+                                                {exchangeRate && <th className="p-4 font-semibold text-gray-800 text-right text-lg">總額 ({targetCurrency})</th>}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {calculation.results.map(res => (
+                                                <tr key={res.id} className="border-b border-gray-200">
+                                                    <td className="p-4 font-medium">{res.name}</td>
+                                                    <td className="p-4 text-right text-gray-600">${res.subtotal.toFixed(2)}</td>
+                                                    <td className="p-4 text-right text-gray-600">${res.proportionalServiceCharge.toFixed(2)}</td>
+                                                    <td className="p-4 text-right font-bold text-blue-600 text-lg">${res.finalTotal.toFixed(2)}</td>
+                                                    {exchangeRate && <td className="p-4 text-right font-bold text-purple-600 text-lg">{res.foreignAmount.toFixed(2)}</td>}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                        <tfoot className="font-bold">
+                                            <tr className="bg-gray-100">
+                                                <td className="p-4">總計</td>
+                                                <td className="p-4 text-right">${calculation.totalFoodBill.toFixed(2)}</td>
+                                                <td className="p-4 text-right">${calculation.serviceChargeAmount.toFixed(2)}</td>
+                                                <td className="p-4 text-right text-xl text-green-600">${calculation.grandTotal.toFixed(2)}</td>
+                                                {exchangeRate && <td className="p-4 text-right text-xl text-green-600">{(calculation.grandTotal * parseFloat(exchangeRate)).toFixed(2)}</td>}
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </section>
+                        )}
+                    </div>
+                    <footer className="text-center text-gray-400 text-sm mt-6">
+                        <p>&copy; 2024 React 分帳計數機 (AI增強版)</p>
+                    </footer>
+                </div>
+            );
+        }
+
+        const container = document.getElementById('root');
+        const root = ReactDOM.createRoot(container);
+        root.render(<App />);
+
+    </script>
+</body>
+</html>
